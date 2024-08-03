@@ -1,204 +1,210 @@
 function number_tube = Program_HPHE(Eff_c_opti, Eff_thermosy)
-    fprintf('Starting Program_HPHE...\n');
+
+    % แสดงข้อความเริ่มต้นโปรแกรม
+    fprintf('เริ่มทำงาน Program_HPHE...\n');
     
-    % Default values if not provided
+    % ตรวจสอบและกำหนดค่าเริ่มต้นให้กับตัวแปรถ้าไม่มีการป้อนค่าเข้ามา
     if nargin < 2
         Eff_c_opti = 0.9;
         Eff_thermosy = 0.8;
     end
     
+    % แสดงค่าเริ่มต้นของประสิทธิภาพ
     fprintf('Eff_c_opti: %.2f, Eff_thermosy: %.2f\n', Eff_c_opti, Eff_thermosy);
 
-    maxIterations = 1000; % Limit loop iterations to prevent hanging
+    % กำหนดจำนวนรอบการทำงานสูงสุดของลูป
+    maxIterations = 1000; 
     iterationCount = 0;
     error_C_Eff = abs(Eff_c_opti - Eff_thermosy);
 
+    % ฟังก์ชันย่อยสำหรับการสุ่มหมายเลขท่อ
     function newTubeNumber = getRandomTubeNumber()
-        fprintf('Generating random tube number...\n');
-        newTubeNumber = randi([1, 10000]);  % You can choose any range you like
-        fprintf('Selected new tube number: %d\n', newTubeNumber);
+        fprintf('กำลังสุ่มหมายเลขท่อ...\n');
+        newTubeNumber = randi([1, 480]); 
+        fprintf('หมายเลขท่อที่เลือก: %d\n', newTubeNumber);
     end
 
-    % Initialize tube count
+    % กำหนดค่าเริ่มต้นของจำนวนท่อ
     n_tube = getRandomTubeNumber();
 
-    try
-        fprintf('Calling Optimum_HPHE with n_tube: %d\n', n_tube);
-        [Eff_thermosy, Eff_c_opti, SL, column, n_row2, ST, Le, Lc, P1, Q1] = Optimum_HPHE(n_tube);
-    catch ME
-        fprintf('Error during Optimum_HPHE call: %s\n', ME.message);
-        rethrow(ME);
-    end
-
-    n_tube2 = n_tube;
-    previous_error_C_Eff = error_C_Eff;  % Track previous error to detect stagnation
+    % สร้างอาเรย์สำหรับเก็บค่าประสิทธิภาพและค่าประหยัดสุทธิ
+    efficiency_values = [];
+    net_savings_values = [];
     
+    % วนลูปจนกว่าค่าความผิดพลาดจะต่ำกว่าค่าที่กำหนด
     while error_C_Eff > 0.009
         iterationCount = iterationCount + 1;
 
+        % หยุดลูปหากจำนวนรอบเกินค่าที่กำหนด
         if iterationCount > maxIterations
-            error('Maximum iterations reached, stopping to prevent infinite loop.');
+            error('ถึงจำนวนรอบสูงสุดแล้ว หยุดการทำงานเพื่อป้องกันการทำงานที่ไม่มีที่สิ้นสุด');
         end
 
-        fprintf('Iteration: %d, n_row2: %d, error_C_Eff: %.6f\n', iterationCount, n_row2, error_C_Eff);
-
-        % Ensure n_row2 is within the valid range
-        if n_row2 < 1
-            n_row2 = 1;
-            fprintf('n_row2 was less than 1. Set to 1.\n');
-        elseif n_row2 > 9
-            n_row2 = 9;
-            fprintf('n_row2 was greater than 9. Set to 9.\n');
-        end
-
-        n_tube = getRandomTubeNumber();  % Get a new random tube number
+        % แสดงค่าความผิดพลาดและรอบการทำงานในแต่ละรอบ
+        fprintf('รอบที่: %d, error_C_Eff: %.6f\n', iterationCount, error_C_Eff);
 
         try
-            fprintf('Re-calculating with new n_tube: %d\n', n_tube);
-            [Eff_thermosy, Eff_c_opti, SL, column, n_row2, ST] = Optimum_HPHE(n_tube);
+            fprintf('เรียกใช้ฟังก์ชัน Optimum_HPHE ด้วย n_tube: %d\n', n_tube);
+            [Eff_thermosy, Eff_c_opti, SL, column, n_row2, ST, Le, Lc, P1, Q1, P2, CA, Cc, C_st, U, CE, H, m_cp_min, T_hi, T_ci] = Optimum_HPHE(n_tube);
 
-            % Ensure column is a valid value
-            if column <= 0
-                error('Column must be greater than 0. Current value: %d', column);
+            % ตรวจสอบค่า column และ n_row2 ว่าเป็นค่าที่ถูกต้อง
+            if column <= 0 || n_row2 <= 0
+                error('ค่าที่ไม่ถูกต้องสำหรับ column หรือ n_row2: column = %d, n_row2 = %d', column, n_row2);
             end
 
-            % Calculate n_row directly
-            n_row = min(max(floor(n_tube / column), 1), 9);  % Ensure n_row is between 1 and 9
-            n_tube2 = n_row * column;  % Adjust n_tube2 based on n_row
+            % คำนวณค่า n_row และปรับค่า n_tube2 ตามค่า n_row
+            n_row = min(max(floor(n_tube / column), 1), 9);  
+            n_tube2 = n_row * column;  
 
-            fprintf('n_row calculated as %d\n', n_row);
+            fprintf('คำนวณค่า n_row เป็น %d\n', n_row);
 
+            % คำนวณค่าความยาวเชิงเส้น (SD)
             SD = sqrt(ST^2 + SL^2);
-            fprintf('SD calculated as %.4f\n', SD);
+            fprintf('คำนวณค่า SD เป็น %.4f\n', SD);
 
+            % ตรวจสอบค่า SD ว่าเป็นค่าที่ถูกต้อง
             if isnan(SD) || isinf(SD)
-                error('Invalid value for SD: %f', SD);
+                error('ค่าที่ไม่ถูกต้องสำหรับ SD: %f', SD);
             end
 
-            % Calculate net savings and store the values for plotting
-            net_savings = Q1; % Adjust this based on actual calculations relevant to your context
-            effectiveness_values = [effectiveness_values, Eff_c_opti];
-            net_savings_values = [net_savings_values, net_savings];
+            % คำนวณค่าประสิทธิภาพและค่าประหยัดสุทธิ
+            ii = 1;
+            EFF_c1 = [];
+            S = [];
+            for eff = 0.01:0.02:0.98
+                EFF_c1(ii) = eff;
+                non = 1 - EFF_c1(ii) * C_st;
+                if non >= 0
+                    S(ii) = P1 * CE * H * EFF_c1(ii) * m_cp_min * (T_hi - T_ci) - P2 * CA * Cc * ...
+                        log((1 - EFF_c1(ii) * C_st) / (1 - EFF_c1(ii))) / ((1 - C_st) * U);
+                    efficiency_values(ii) = EFF_c1(ii);
+                    net_savings_values(ii) = S(ii);
+                end
+                ii = ii + 1;
+            end
 
+            % อัปเดตค่าความผิดพลาดและแสดงผลค่าที่เปลี่ยนแปลง
+            previous_error_C_Eff = error_C_Eff;
+            error_C_Eff = abs(Eff_c_opti - Eff_thermosy);
+            fprintf('ค่าความผิดพลาดก่อนหน้า: %.6f, ค่าความผิดพลาดหลังจากอัปเดต: %.6f\n', previous_error_C_Eff, error_C_Eff);
+
+            % หยุดลูปหากค่าความผิดพลาดเปลี่ยนแปลงไม่มาก
+            if abs(previous_error_C_Eff - error_C_Eff) < 1e-6
+                fprintf('ค่าความผิดพลาดไม่เปลี่ยนแปลงมาก หยุดลูปเพื่อป้องกันการทำงานที่ไม่มีที่สิ้นสุด\n');
+                break;
+            end
+
+            % สุ่มหมายเลขท่อใหม่สำหรับรอบถัดไป
+            n_tube = getRandomTubeNumber();  
 
         catch ME
+            % แสดงข้อผิดพลาดที่เกิดขึ้น
+            fprintf('เกิดข้อผิดพลาด: %s\n', ME.message);
             if strcmp(ME.identifier, 'MATLAB:dimagree')
-                error('Matrix dimensions must agree: %s', ME.message);
+                error('ขนาดของเมทริกซ์ต้องเท่ากัน: %s', ME.message);
             else
                 rethrow(ME);
             end
         end
-
-        % Update the error metric and debug output
-        previous_error_C_Eff = error_C_Eff;
-        error_C_Eff = abs(Eff_c_opti - Eff_thermosy);
-        fprintf('Previous error_C_Eff: %.6f, Updated error_C_Eff: %.6f\n', previous_error_C_Eff, error_C_Eff);
-
-        % Early exit if error is not changing significantly
-        if abs(previous_error_C_Eff - error_C_Eff) < 1e-6
-            fprintf('Error is not changing significantly. Stopping loop to prevent infinite iterations.\n');
-            break;
-        end
     end
+
+    % คืนค่าหมายเลขท่อที่ได้จากการคำนวณ
+    number_tube = n_tube2;  
+    fprintf('Program_HPHE เสร็จสิ้นการทำงาน หมายเลขท่อสุดท้ายคือ: %d\n', number_tube);
     
-    number_tube = n_tube2;  % Return the final tube number
-    fprintf('Program_HPHE completed successfully. Final number of tubes: %d\n', number_tube);
-    
-    % --- Display Results ---
-    fprintf('\n--- Final Results ---\n');
-    fprintf('Evaporator Length (Le): %.2f m\n', Le);
-    fprintf('Condenser Length (Lc): %.2f m\n', Lc);
-    fprintf('Number of Heat Pipes: %d\n', number_tube);
-    fprintf('Optimal Economic Effectiveness: %.4f\n', Eff_c_opti);
+    % --- แสดงผลลัพธ์ ---
+    fprintf('\n--- ผลลัพธ์สุดท้าย ---\n');
+    fprintf('ความยาวของ Evaporator (Le): %.2f m\n', Le);
+    fprintf('ความยาวของ Condenser (Lc): %.2f m\n', Lc);
+    fprintf('จำนวนท่อแลกเปลี่ยนความร้อน: %d\n', number_tube);
+    fprintf('ประสิทธิภาพทางเศรษฐศาสตร์ที่เหมาะสมที่สุด: %.4f\n', Eff_c_opti);
 
-    % Calculate Payback Period (assuming P1 is payback period or similar)
-    payback_period = P1; % Placeholder, adjust based on actual calculations
-    fprintf('Payback Period: %.2f years\n', payback_period);
+    % คำนวณระยะเวลาคืนทุน (สมมติว่า P1 คือระยะเวลาคืนทุน)
+    payback_period = P1; 
+    fprintf('ระยะเวลาคืนทุน: %.2f ปี\n', payback_period);
 
-    % Calculate Net Savings (Assuming Q1 represents energy savings or similar)
-    net_savings = Q1; % Placeholder, adjust based on actual calculations
-    fprintf('Net Savings: %.2f currency units\n', net_savings);
+    % คำนวณมูลค่าประหยัดสุทธิ (สมมติว่า Q1 เป็นค่าพลังงานที่ประหยัดได้)
+    net_savings = Q1; 
+    fprintf('มูลค่าประหยัดสุทธิ: %.2f หน่วยเงิน\n', net_savings);
 
-    % Display the best economic effectiveness value
-    best_eff_economic = Eff_c_opti; % Assuming this is the best effectiveness based on economics
-    fprintf('Best Economic Effectiveness: %.4f\n', best_eff_economic);
+    % แสดงค่าประสิทธิภาพทางเศรษฐศาสตร์ที่ดีที่สุด
+    best_eff_economic = Eff_c_opti; 
+    fprintf('ประสิทธิภาพทางเศรษฐศาสตร์ที่ดีที่สุด: %.4f\n', best_eff_economic);
 
-   % Plot results
-    figure;
-    plot(EFF_c1, S, 'r-');
-    axis tight;
-    title('Efficiency vs Saving');
-    xlabel('Effectiveness');
-    ylabel('Saving');
-    legend('Saving');
-
-    fprintf('Results displayed and graph plotted.\n');
+    % สร้างกราฟแสดงผลหลังจากการคำนวณเสร็จสิ้น
+    if ~isempty(efficiency_values) && ~isempty(net_savings_values)
+        figure;
+        plot(efficiency_values, net_savings_values, 'r-', 'DisplayName', 'Net Savings');
+        hold on;
+        plot(efficiency_values, efficiency_values, 'b--', 'DisplayName', 'Efficiency Values');
+        hold off;
+        axis tight;
+        title('Effectiveness vs Value');
+        xlabel('Effectiveness');
+        ylabel('Value');
+        legend('show');
+        fprintf('แสดงผลลัพธ์และกราฟเรียบร้อยแล้ว\n');
+    else
+        fprintf('ไม่มีข้อมูลสำหรับสร้างกราฟ\n');
+    end
 end
-
-
-
-
-
-
 
 function [Eff_thermosy, Eff_c_opti, Q1, P1, CE, H, m_cp_min, T_hi, T_ci, P2, CA, Cc, C_st, U, i, d, A_HX, N_day, column, n_row2] = Optimum_HPHE(n_tube)
     try
-        % Debug: Start of the function
-        fprintf('Starting Optimum_HPHE with n_tube = %d\n', n_tube);
+        % แสดงข้อความเริ่มต้นการทำงานของฟังก์ชัน
+        fprintf('เริ่มต้นฟังก์ชัน Optimum_HPHE ด้วย n_tube = %d\n', n_tube);
 
-        % รับอินพุตจากผู้ใช้
-        Le = 0.345; % Length of evaporator section (m)
-        Lc = 0.345; % Length of condenser section (m)
-        di = 0.01905; % Inside diameter (m)
-        do = 0.01921; % Outside diameter (m)
-        ST = 0.04; % Transverse pitch (m)
-        SL = 0.04; % Longitudinal pitch (m)
-        T_hi = 200 + 273.15; % Temperature of inlet heating fluid (K)
-        T_ci = 52 + 273.15; % Temperature of inlet cooling fluid (K)
-        Q_h = 576; % Flow rate of heating fluid (m^3/hr)
-        Q_co = 0.33; % Flow rate of cooling fluid (m^3/hr)
-        column = 10; % Number of columns
-        heating_medium = 2; % Heating medium; 1 for water, 2 for air
-        cooling_medium = 1; % Cooling medium; 1 for water, 2 for air
-        characteristic_Of_HPHE = 1; % Pipe alignment; 1 for Staggered, 2 for Aligned
-        materials = 2; % Materials to make tube; 1 for Steel, 2 for Copper, 3 for Aluminium
-        Working_fluid = 1; % Working fluid; 1 for water, 2 for R134a
-        fillratio = 0.5; % Fill ratio of Working fluid
-        bata = 1.57; % Incline angle
-        Df_e = 0; % Evaporator section
-        Df_c = 0; % Condenser section
+        % รับอินพุตที่เป็นค่าคงที่จากผู้ใช้หรือการคำนวณเริ่มต้น
+        Le = 0.345; % ความยาวของส่วน Evaporator (เมตร)
+        Lc = 0.345; % ความยาวของส่วน Condenser (เมตร)
+        di = 0.01905; % เส้นผ่านศูนย์กลางภายในของท่อ (เมตร)
+        do = 0.01921; % เส้นผ่านศูนย์กลางภายนอกของท่อ (เมตร)
+        ST = 0.04; % ระยะพิทช์ตามขวาง (เมตร)
+        SL = 0.04; % ระยะพิทช์ตามยาว (เมตร)
+        T_hi = 200 + 273.15; % อุณหภูมิของของไหลที่เข้าให้ความร้อน (เคลวิน)
+        T_ci = 52 + 273.15; % อุณหภูมิของของไหลที่เข้าระบายความร้อน (เคลวิน)
+        Q_h = 576; % อัตราการไหลของของไหลที่ให้ความร้อน (ลูกบาศก์เมตร/ชั่วโมง)
+        Q_co = 0.33; % อัตราการไหลของของไหลที่ระบายความร้อน (ลูกบาศก์เมตร/ชั่วโมง)
+        column = 10; % จำนวนคอลัมน์ของท่อ
+        heating_medium = 2; % ตัวกลางให้ความร้อน; 1 สำหรับน้ำ, 2 สำหรับอากาศ
+        cooling_medium = 1; % ตัวกลางระบายความร้อน; 1 สำหรับน้ำ, 2 สำหรับอากาศ
+        characteristic_Of_HPHE = 1; % การจัดเรียงท่อ; 1 สำหรับ Staggered, 2 สำหรับ Aligned
+        materials = 2; % วัสดุที่ใช้ทำท่อ; 1 สำหรับเหล็ก, 2 สำหรับทองแดง, 3 สำหรับอลูมิเนียม
+        Working_fluid = 1; % ของไหลที่ใช้ในการทำงาน; 1 สำหรับน้ำ, 2 สำหรับ R134a
+        fillratio = 0.5; % อัตราการเติมของของไหลที่ใช้ในการทำงาน
+        bata = 1.57; % มุมเอียง
+        Df_e = 0; % ส่วนของ Evaporator
+        Df_c = 0; % ส่วนของ Condenser
 
-        
-
-        % คำนวณข้อมูลพื้นฐานของการแลกเปลี่ยนความร้อน
+        % คำนวณค่าพื้นฐานของการแลกเปลี่ยนความร้อน
         n_tube2 = max(n_tube, column);
-        n_tube2 = ceil(n_tube2 / column) * column; % Ensure n_tube2 is a multiple of column
+        n_tube2 = ceil(n_tube2 / column) * column; % ให้แน่ใจว่า n_tube2 เป็นจำนวนที่ลงตัวกับจำนวนคอลัมน์
         n_row2 = n_tube2 / column;
 
-        % Debug: Intermediate values
+        % แสดงผลค่ากลางที่คำนวณได้
         fprintf('n_tube2 = %d, n_row2 = %d\n', n_tube2, n_row2);
 
         % คำนวณข้อมูลทางเศรษฐศาสตร์
-        N_day = 360; % Operation day per year (day/year)
-        N = 20; % Operation year (year)
-        H_work = 10; % Working hour per day (hrs/day)
-        i = 0.04; % Energy price rate (0.xx)
-        d = 0.016; % Market discount rate (0.xx)
-        Ms = 0.06; % Ratio of annual maintenance and operation cost into first original cost
-        Rv = 0.1; % Ratio of resale value into first original cost
-        cost_oil = 22; % Oil cost (Baht/liter)
-        CA = 3000; % Area dependent first cost of HPHE (Baht/m^2)
+        N_day = 360; % จำนวนวันที่ทำงานต่อปี (วัน/ปี)
+        N = 20; % จำนวนปีที่ทำงาน (ปี)
+        H_work = 10; % จำนวนชั่วโมงการทำงานต่อวัน (ชั่วโมง/วัน)
+        i = 0.04; % อัตราราคาพลังงาน (0.xx)
+        d = 0.016; % อัตราคิดลดของตลาด (0.xx)
+        Ms = 0.06; % สัดส่วนของค่าใช้จ่ายประจำปีที่เกิดขึ้นในการดำเนินงานและบำรุงรักษาต่อค่าใช้จ่ายเดิม
+        Rv = 0.1; % สัดส่วนของมูลค่าขายคืนต่อค่าใช้จ่ายเดิม
+        cost_oil = 22; % ราคาน้ำมัน (บาท/ลิตร)
+        CA = 3000; % ค่าใช้จ่ายแรกเริ่มที่ขึ้นอยู่กับพื้นที่ของ HPHE (บาท/ตารางเมตร)
 
         % คำนวณค่าพื้นฐาน
-        H = N_day * H_work; % h/year
-        CE = cost_oil / 38581.5 * 3600 / 1000; % (Baht/Wh)
-        A_HX = (pi * do * (Le + Lc)) * n_tube2; % Heat exchanger surface area
+        H = N_day * H_work; % ชั่วโมง/ปี
+        CE = cost_oil / 38581.5 * 3600 / 1000; % (บาท/Wh)
+        A_HX = (pi * do * (Le + Lc)) * n_tube2; % พื้นที่ผิวของเครื่องแลกเปลี่ยนความร้อน
 
-        % คำนวณค่า P1, P2
+        % คำนวณค่า P1 และ P2
         P1 = compute_P1(N, i, d);
         P2 = 1 + P1 * Ms - Rv * (1 + d)^(-N);
 
-        % Debug: Check calculated financial parameters
+        % แสดงผลการคำนวณค่าทางการเงิน
         fprintf('P1 = %.4f, P2 = %.4f, CE = %.4f\n', P1, P2, CE);
 
         % คำนวณค่าความต้านทาน
@@ -206,36 +212,37 @@ function [Eff_thermosy, Eff_c_opti, Q1, P1, CE, H, m_cp_min, T_hi, T_ci, P2, CA,
 
         Z_total = Z1 + Z9 + Z2 + Z8;
 
-        % Debug: Check calculated resistances
+        % แสดงผลการคำนวณค่าความต้านทาน
         fprintf('Z1 = %.6f, Z2 = %.6f, Z8 = %.6f, Z9 = %.6f, Z_total = %.6f\n', Z1, Z2, Z8, Z9, Z_total);
 
         % คำนวณการถ่ายเทความร้อน
         [Q1, U, m_cp_min, Ch, Cc, C_st] = calculate_heat_transfer(Q_h, Q_co, Z_total, A_HX, T_hi, T_ci, heating_medium, cooling_medium);
 
-        % Debug: Check heat transfer values
+        % แสดงผลการคำนวณค่าการถ่ายเทความร้อน
         fprintf('Q1 = %.2f, U = %.4f, m_cp_min = %.4f\n', Q1, U, m_cp_min);
 
         % คำนวณประสิทธิภาพ
         [Eff_c_opti, Eff_thermosy] = optimize_effectiveness(P1, P2, CE, H, m_cp_min, T_hi, T_ci, Cc, C_st, U, Q1, CA);
 
-        % แสดงผลขั้นตอนต่างๆ
+        % แสดงผลค่าต่างๆ ที่ได้คำนวณ
         fprintf('-------------------------------------\n');
-        fprintf('Tube arrangement adjusted to %d tubes and %d rows.\n', n_tube2, n_row2);
-        fprintf('Heat transfer area: %.2f m^2\n', A_HX);
-        fprintf('Overall heat transfer coefficient: %.2f W/m^2K\n', U);
-        fprintf('Optimized effectiveness: %.2f\n', Eff_c_opti);
-        fprintf('Thermosyphon effectiveness: %.2f\n', Eff_thermosy);
+        fprintf('การจัดเรียงท่อถูกปรับให้เข้ากับ %d tubes and %d rows.\n', n_tube2, n_row2);
+        fprintf('พื้นที่การแลกเปลี่ยนความร้อน: %.2f m^2\n', A_HX);
+        fprintf('ค่าการถ่ายเทความร้อนทั้งหมด: %.2f W/m^2K\n', U);
+        fprintf('ประสิทธิภาพที่ได้รับการปรับปรุง: %.2f\n', Eff_c_opti);
+        fprintf('ประสิทธิภาพของ thermosyphon: %.2f\n', Eff_thermosy);
         
     catch ME
-        % Handle and display error message
-        fprintf('Error occurred: %s\n', ME.message);
+        % การจัดการและแสดงข้อผิดพลาดที่เกิดขึ้น
+        fprintf('เกิดข้อผิดพลาด: %s\n', ME.message);
         if strcmp(ME.identifier, 'MATLAB:dimagree')
-            error('Matrix dimensions must agree: %s', ME.message);
+            error('ขนาดของเมทริกซ์ต้องเท่ากัน: %s', ME.message);
         else
             rethrow(ME);
         end
     end
 end
+
 
 function P1 = compute_P1(N, i, d)
     try
